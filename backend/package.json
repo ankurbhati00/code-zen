@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "tsc -b && node dist/index.js"
+    "build:frontend":"cd ../frontend && npm i && tsc -b && npx vite build ",
+    "dev": "tsc -b && node dist/index.js",
+    "start":"tsc -b && npm run build:frontend && node dist/index.js"
   },
   "keywords": [],
   "author": "",
