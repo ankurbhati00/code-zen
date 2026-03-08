@@ -27,7 +27,7 @@ export default function LandingPage() {
           className=" w-full h-full px-[20%] "
           footer={
             <div className="flex flex-col items-start">
-              <Button type="submit" className="w-full ">
+              <Button type="submit" className="w-full " disabled={loading}>
                 {loading ? (
                   <>
                     Generating... <Loader className="animate-spin" size={20} />

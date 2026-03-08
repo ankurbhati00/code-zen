@@ -8,12 +8,20 @@ import useWebcontainers from "@/hooks/useWebcontainers";
 import { FileData } from "@/types";
 import Preview from "./Preview";
 import CodeEditor from "./CodeEditor";
+import { WebContainerProcess } from "@webcontainer/api";
 
 const RightPanel: React.FC = () => {
   const { state } = useWorkspace();
   const { files, activeFileId } = state;
   const { webcontainer } = useWebcontainers();
   const [url, setUrl] = useState("");
+  const hasStartedDevServer = useRef(false);
+  const isRestartingDevServer = useRef(false);
+  const serverReadyListenerAttached = useRef(false);
+  const devProcessRef = useRef<WebContainerProcess | null>(null);
+  const previousPathsSignature = useRef("");
+  const previousCriticalSignature = useRef("");
+  const restartTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   const findFile = (fileList: any[], targetId: string): any => {
     for (const file of fileList) {
@@ -30,104 +38,173 @@ const RightPanel: React.FC = () => {
 
   const activeFile = activeFileId ? findFile(files, activeFileId) : null;
 
-  useEffect(() => {
-    async function init() {
-      const createMountStructure = (files: FileData[]): Record<string, any> => {
-        const mountStructure: Record<string, any> = {};
+  const createMountStructure = (currentFiles: FileData[]): Record<string, any> => {
+    const mountStructure: Record<string, any> = {};
 
-        const processFile = (file: FileData, isRootFolder: boolean) => {
-          if (file.type === "folder") {
-            // For folders, create a directory entry
-            mountStructure[file.name] = {
-              directory: file.children
-                ? Object.fromEntries(
-                    file.children.map((child) => [
-                      child.name,
-                      processFile(child, false),
-                    ])
-                  )
-                : {},
-            };
-          } else if (file.type === "file") {
-            if (isRootFolder) {
-              mountStructure[file.name] = {
-                file: {
-                  contents: file.content || "",
-                },
-              };
-            } else {
-              // For files, create a file entry with contents
-              return {
-                file: {
-                  contents: file.content || "",
-                },
-              };
-            }
-          }
-
-          return mountStructure[file.name];
+    const processFile = (file: FileData): any => {
+      if (file.type === "folder") {
+        return {
+          directory: file.children
+            ? Object.fromEntries(
+              file.children.map((child) => [child.name, processFile(child)])
+            )
+            : {},
         };
+      }
 
-        // Process each top-level file/folder
-        files.forEach((file) => processFile(file, true));
-
-        return mountStructure;
+      return {
+        file: {
+          contents: file.content || "",
+        },
       };
+    };
 
-      const mountStructure = createMountStructure(files);
-      await webcontainer?.mount(mountStructure);
-      await main();
-    }
-    init();
+    currentFiles.forEach((file) => {
+      mountStructure[file.name] = processFile(file);
+    });
 
-    // Mount the structure if WebContainer is available
-  }, [files, webcontainer]);
-
-  const cleanLogText = (text: string) => {
-    // Remove ANSI escape codes
-    let cleaned = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
-    // Remove special characters
-    cleaned = cleaned.replace(/[\\|/\-]/g, "");
-    // Remove extra whitespace
-    cleaned = cleaned.trim();
-    return cleaned;
+    return mountStructure;
   };
 
-  async function main() {
+  const collectPaths = (currentFiles: FileData[]): string[] => {
+    const paths: string[] = [];
+
+    const walk = (list: FileData[]) => {
+      list.forEach((file) => {
+        paths.push(`${file.type}:${file.path}`);
+        if (file.children?.length) {
+          walk(file.children);
+        }
+      });
+    };
+
+    walk(currentFiles);
+    return paths.sort();
+  };
+
+  const criticalFiles = [
+    "package.json",
+    "vite.config.ts",
+    "vite.config.js",
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+  ];
+
+  const collectCriticalSignature = (currentFiles: FileData[]): string => {
+    const entries: string[] = [];
+
+    const walk = (list: FileData[]) => {
+      list.forEach((file) => {
+        if (file.type === "file" && criticalFiles.some((name) => file.path.endsWith(name))) {
+          entries.push(`${file.path}:${file.content || ""}`);
+        }
+        if (file.children?.length) {
+          walk(file.children);
+        }
+      });
+    };
+
+    walk(currentFiles);
+    return entries.sort().join("|");
+  };
+
+  const startDevServer = async () => {
     if (!webcontainer) return;
-    console.log("____MAIN_____");
+    devProcessRef.current = await webcontainer.spawn("npm", [
+      "run",
+      "dev",
+      "--",
+      "--host",
+      "0.0.0.0",
+    ]);
+  };
 
-    // Clear previous logs
-    if (footerRef.current) {
-      footerRef.current.innerHTML = "";
+  const restartDevServer = async () => {
+    if (!webcontainer || isRestartingDevServer.current) return;
+    isRestartingDevServer.current = true;
+
+    try {
+      if (devProcessRef.current) {
+        await devProcessRef.current.kill();
+        devProcessRef.current = null;
+      }
+      await startDevServer();
+    } finally {
+      isRestartingDevServer.current = false;
     }
-    const installProcess = await webcontainer.spawn("npm", ["install"]);
-    // installProcess.output.pipeTo(
-    //   new WritableStream({
-    //     write(data) {
-    //       // console.log(btoa(data));
-    //       // appendLog(btoa(data));
-    //     },
-    //   })
-    // );
+  };
 
-    const devProcess = await webcontainer.spawn("npm", ["run", "dev"]);
+  useEffect(() => {
+    if (!webcontainer || files.length === 0) return;
+    const wc = webcontainer;
+    let cancelled = false;
 
-    // devProcess.output.pipeTo(
-    //   new WritableStream({
-    //     write(data) {
-    //       // appendLog(btoa(data));
-    //     },
-    //   })
-    // );
+    async function syncAndRun() {
+      await wc.mount(createMountStructure(files));
+      if (cancelled) return;
 
-    // Wait for `server-ready` event
-    webcontainer.on("server-ready", (port, url) => {
-      console.log(url);
-      console.log(port);
-      setUrl(url);
-    });
-  }
+      const currentPathsSignature = collectPaths(files).join("|");
+      const currentCriticalSignature = collectCriticalSignature(files);
+      const structureChanged =
+        previousPathsSignature.current !== "" &&
+        previousPathsSignature.current !== currentPathsSignature;
+      const criticalChanged =
+        previousCriticalSignature.current !== "" &&
+        previousCriticalSignature.current !== currentCriticalSignature;
+
+      previousPathsSignature.current = currentPathsSignature;
+      previousCriticalSignature.current = currentCriticalSignature;
+
+      if (!hasStartedDevServer.current) {
+        hasStartedDevServer.current = true;
+
+        if (footerRef.current) {
+          footerRef.current.innerHTML = "";
+        }
+
+        if (!serverReadyListenerAttached.current) {
+          wc.on("server-ready", (_port, serverUrl) => {
+            setUrl(serverUrl);
+          });
+          serverReadyListenerAttached.current = true;
+        }
+
+        const installProcess = await wc.spawn("npm", ["install"]);
+        const installExitCode = await installProcess.exit;
+        if (installExitCode !== 0) {
+          hasStartedDevServer.current = false;
+          return;
+        }
+
+        await startDevServer();
+        return;
+      }
+
+      if (structureChanged || criticalChanged) {
+        if (restartTimerRef.current) {
+          window.clearTimeout(restartTimerRef.current);
+        }
+        restartTimerRef.current = window.setTimeout(() => {
+          restartDevServer();
+        }, 500);
+      }
+    }
+
+    syncAndRun();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files, webcontainer]);
+
+  useEffect(() => {
+    return () => {
+      if (restartTimerRef.current) {
+        window.clearTimeout(restartTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <motion.div
