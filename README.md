@@ -2,6 +2,9 @@
 
 AI-powered website generator with a live workspace. The frontend provides a landing flow and an interactive workspace, while the backend uses Claude to choose a project template and generate responses.
 
+# Live Link
+[https://code-zen.onrender.com]
+
 ## Features
 - Prompt-driven website generation
 - Live workspace with editor, file explorer, and preview
@@ -10,12 +13,12 @@ AI-powered website generator with a live workspace. The frontend provides a land
 
 ## Tech Stack
 - Frontend: React, Vite, TypeScript, Tailwind CSS, Radix UI
-- Backend: Node.js, Express, TypeScript, Anthropic SDK
+- Backend: Node.js, Express, TypeScript, Groq SDK
 
 ## Project Structure
 ```
 code-zen/
-  backend/      # Express + Claude integration
+  backend/      # Express + Groq sdk integration
   frontend/     # React + Vite app
 ```
 
@@ -28,13 +31,10 @@ Create the following files:
 
 `backend/.env`
 ```
-CLAUDE_API_KEY=your_claude_api_key
+GROQ_API_KEY=your_groq_api_key
+MODEL=name_of_the_model (default:[meta-llama/llama-4-scout-17b-16e-instruct])
 ```
 
-`frontend/.env`
-```
-VITE_BACKEND_URL=http://localhost:3000
-```
 
 ## Install & Run
 
@@ -62,7 +62,7 @@ Vite will print the local URL (usually `http://localhost:5173`).
 
 `POST /chat`
 - Body: `{ "messages": [{ "role": "user", "content": "..." }] }`
-- Returns a Claude-generated response string.
+- Returns a Ai-generated response string.
 
 ## Scripts
 
@@ -76,5 +76,4 @@ Frontend:
 - `npm run preview` — preview production build
 
 ## Notes
-- The backend requires a valid Claude API key in `backend/.env`.
-- The frontend reads the backend URL from `VITE_BACKEND_URL`.
+- The backend requires a valid Groq API key in `backend/.env`.
