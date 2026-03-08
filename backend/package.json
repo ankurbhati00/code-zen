@@ -5,7 +5,7 @@
   "scripts": {
     "build:frontend":"cd ../frontend && npm i && tsc -b && npx vite build ",
     "dev": "tsc -b && node dist/index.js",
-    "build":"tsc -b && npm run build:frontend",
+    "build":"npm i && tsc -b && npm run build:frontend",
     "start":"node dist/index.js"
   },
   "keywords": [],
